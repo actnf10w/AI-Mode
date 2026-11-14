@@ -1,0 +1,90 @@
+name: Build iOS App and IPA
+
+on:
+  push:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+jobs:
+  build-ios:
+    name: Build iOS WebView App
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install Project Dependencies
+        run: |
+          npm init -y
+          npm install @capacitor/core @capacitor/cli @capacitor/ios
+          npm install -D @capacitor/assets
+          npx cap init "AI Mode" com.google.aimode --web-dir www
+
+      - name: Copy Capacitor Config
+        run: |
+          echo '{
+            "appId": "com.google.aimode",
+            "appName": "AI Mode",
+            "webDir": "www",
+            "server": {
+              "url": "https://google.com/ai",
+              "cleartext": true
+            }
+          }' > capacitor.config.json
+
+      - name: Add iOS Platform
+        run: |
+          npx cap add ios
+
+      - name: Generate App Icons from logo.jpg
+        run: |
+          if [ -f "logo.jpg" ]; then
+            npx capacitor-assets generate --iconBackgroundColor #ffffff --iconBackgroundColorDark #000000
+          else
+            echo "logo.jpg not found, skipping icon generation."
+          fi
+
+      - name: Sync Capacitor
+        run: |
+          npx cap sync ios
+
+      - name: Setup Ruby and CocoaPods
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.2'
+          bundler-cache: true
+
+      - name: Install CocoaPods Dependencies
+        run: |
+          cd ios/App
+          pod install
+
+      - name: Setup Xcode Version
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest
+
+      - name: Build Xcode Archive (Unsigned)
+        run: |
+          cd ios/App
+          mkdir -p build
+          xcodebuild -workspace App.xcworkspace \
+                     -scheme App \
+                     -configuration Release \
+                     -sdk iphoneos \
+                     -archivePath build/App.xcarchive \
+                     archive \
+                     CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO
+
+      - name: Upload Build Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-archive-output
+          path: ios/App/build/App.xcarchive
